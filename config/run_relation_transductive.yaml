@@ -28,7 +28,7 @@ model:
     layer_norm: yes
 
 task:
-  name: InductiveInference
+  name: TransductiveInference
   num_negative: 256
   strict_negative: yes
   adversarial_temperature: 1

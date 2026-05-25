@@ -111,7 +111,7 @@ def get_device(cfg):
 
 
 def create_working_directory(cfg):
-    file_name = "working_dir.tmp"
+    file_name = "working_dir_%d.tmp" % os.getpid()
     world_size = get_world_size()
     if cfg.train.gpus is not None and len(cfg.train.gpus) != world_size:
         error_msg = "World size is %d but found %d GPUs in the argument"
@@ -122,7 +122,8 @@ def create_working_directory(cfg):
         dist.init_process_group("nccl", init_method="env://")
 
     working_dir = os.path.join(os.path.expanduser(cfg.output_dir),
-                               cfg.model["class"], cfg.dataset["class"], time.strftime("%Y-%m-%d-%H-%M-%S"))
+                               cfg.model["class"], cfg.dataset["class"],
+                               time.strftime("%Y-%m-%d-%H-%M-%S") + "-%d" % os.getpid())
 
     # synchronize working directory
     if get_rank() == 0:

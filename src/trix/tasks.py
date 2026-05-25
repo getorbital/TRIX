@@ -2,7 +2,7 @@ from functools import reduce
 from torch_scatter import scatter_add
 from torch_geometric.data import Data
 import torch
-import torch_geometric.utils.degree as degree
+from torch_geometric.utils import degree
 
 
 def edge_match(edge_index, query_index):
