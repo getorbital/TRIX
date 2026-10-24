@@ -91,7 +91,7 @@ class RelNet(BaseNBFNet):
         node_representations = torch.ones(len(h_index), data.num_nodes, self.layers_hh[0].input_dim).to(h_index.device)
 
         batch_size = len(h_index)
-        query = torch.ones(h_index.shape[0], self.dims[0], device=h_index.device, dtype=torch.float)
+        query = torch.ones(h_index.shape[0], self.dims[0], device=h_index.device, dtype=torch.get_default_dtype())
         index = h_index.unsqueeze(-1).expand_as(query)
         
         boundary = torch.zeros(batch_size, num_relations, self.dims[0], device=h_index.device)
