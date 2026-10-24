@@ -9,7 +9,11 @@ TRIX exactly, with the released checkpoints, and compare sizes and timings.
 For one split of one dataset: size of the materialized relation graph against the entity x relation
 incidences it is replaced by, time to build it, maximum score difference between the two
 implementations on a few batches of test triples (all negatives), time per forward pass of each,
-and maximum gradient difference after one training step on the same batch.
+and maximum gradient difference after one training step on the same batch. With
+`--float64-reference`, the same training step is also run with the materialized model in float64,
+and each float32 implementation is compared to it (float32 summation order matters for the
+relation module: on FB15k237 v1 the materialized gradients can be off by 10-40% on some tensors
+on Linux builds of torch, the relation-graph-free ones stay within 1e-5).
 """
 
 import argparse
@@ -73,6 +77,8 @@ def main():
     parser.add_argument("--batches", type=int, default=3)
     parser.add_argument("--num_negative", type=int, default=32, help="negatives for the gradient check")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--float64-reference", action="store_true",
+                        help="also run the training step in float64 and compare each float32 implementation to it")
     args = parser.parse_args()
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
@@ -167,6 +173,28 @@ def main():
     print(f"  forward + backward time: materialized {times['materialized']:.3f} s, "
           f"relation-graph-free {times['relation-graph-free']:.3f} s "
           f"(x{times['materialized'] / max(times['relation-graph-free'], 1e-9):.1f})")
+
+    if args.float64_reference:
+        # same step, materialized model in float64 (the incidence cache holds float32 values: drop it)
+        torch.set_default_dtype(torch.float64)
+        ref64 = build_model(args.task, False)
+        ref64.load_state_dict(state)
+        ref64 = ref64.to(device).train()
+        ref64.zero_grad()
+        pred = ref64(data, batch)
+        target = torch.zeros_like(pred)
+        target[:, 0] = 1
+        F.binary_cross_entropy_with_logits(pred, target).backward()
+        g64 = {n: p.grad.detach().double() for n, p in ref64.named_parameters() if p.grad is not None}
+        torch.set_default_dtype(torch.float32)
+        for label in ("materialized", "relation-graph-free"):
+            rel = {n: ((grads[label][n].double() - g64[n]).norm() / g64[n].norm().clamp(min=1e-300)).item() for n in g64}
+            ranked = sorted(rel, key=rel.get, reverse=True)
+            n_bad = sum(r > 1e-3 for r in rel.values())
+            print(f"  float32 {label} vs float64 reference: max rel grad diff {rel[ranked[0]]:.2e} "
+                  f"(median {rel[ranked[len(ranked) // 2]]:.1e}, {n_bad} tensors above 1e-3)")
+            for n in ranked[:2 if n_bad else 0]:
+                print(f"    {n}: rel diff {rel[n]:.2e}, |grad| norm {g64[n].norm().item():.2e}")
 
 
 if __name__ == "__main__":

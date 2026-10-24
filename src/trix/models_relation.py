@@ -113,7 +113,7 @@ class RelNet(BaseNBFNet):
         num_relations = int(data.num_relations)
 
         batch_size = len(h_index)
-        query = torch.ones(h_index.shape[0], self.dims[0], device=h_index.device, dtype=torch.float)
+        query = torch.ones(h_index.shape[0], self.dims[0], device=h_index.device, dtype=torch.get_default_dtype())
         boundary = torch.ones(batch_size, num_relations, self.dims[0], device=h_index.device)
 
         if self.relation_graph_free:
