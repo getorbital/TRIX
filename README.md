@@ -62,6 +62,42 @@ python ./src/run_relation.py -c ./config/run_relation_transductive.yaml --datase
 python ./src/run_relation.py -c ./config/run_relation_inductive.yaml --dataset FB15k237Inductive --version v1 --epochs 3 --bpe 1000 --gpus [0] --ckpt /path/to/checkpoint
 ```
 
+## Relation-graph-free message passing
+
+TRIX's relation module (`RelNet`) runs an NBFNet over a *relation graph* built by `build_relation_graph`: one node per relation type and one edge per entity shared by two relations, in four flavours (head-head, head-tail, tail-head, tail-tail). This graph has `sum_v k_v^2` edges (at most `4|V|α²`, where `k_v` is the number of relations entity `v` appears in), typically 4 to 30 times the number of triples of the original graph; it is built in Python when a dataset is processed and stored with it.
+
+Because TRIX uses the DistMult message and sum aggregation, the sum over relation-graph edges factors through the shared entities: one layer of `RelNet` can be computed with two sparse products by the binary entity × relation incidence matrices (at most `2|E|` non-zeros), relations → entities → relations, without building the relation graph. Same parameters, same output up to floating-point rounding; the `|V|α²` term of the time and memory complexity disappears. See `src/trix/relation_graph_free.py` for the derivation.
+
+Enable it with `relation_graph_free: yes` in the `relation_model` section of a config, and `build_relation_graph: no` in the `dataset` section to skip building (and caching) the relation graph altogether:
+
+```yaml
+dataset:
+  class: FB15k237Inductive
+  version: v1
+  build_relation_graph: no   # processed without the relation graph (separate cache file)
+model:
+  relation_model:
+    relation_graph_free: yes
+```
+
+Both options work with the released checkpoints and with pre-training and fine-tuning (`relation_graph_free` is read by `RelNet` of both the entity and the relation prediction models). `check_relation_graph_free.py` compares the two implementations on one graph with a checkpoint: sizes, scores on test triples with all negatives, gradients after one training step, and timings.
+
+```bash
+python ./src/check_relation_graph_free.py --task entity --ckpt ./entity_prediction.pth --dataset FB15k237Inductive --version v1 --root ./kg-datasets --device cuda:0
+python ./src/check_relation_graph_free.py --task relation --ckpt ./relation_prediction.pth --dataset WN18RRInductive --version v1 --root ./kg-datasets
+```
+
+With the released entity-prediction checkpoint (CPU, float32, 8 positives per batch with all negatives for the forward pass and 32 sampled negatives for the training step), the maximum relative score difference is below 2e-5 and the maximum relative gradient difference below 5e-4 on every graph below; against a float64 reference, the float32 gradients of both implementations are equally accurate (≤ 6e-5 in relative norm on every tensor of the relation module of the GraIL v1 test graphs). The relation-prediction checkpoint gives the same picture.
+
+| graph (test split) | triples | relation graph edges | incidences | forward (materialized → free) | forward + backward (materialized → free) |
+|---|---:|---:|---:|---:|---:|
+| WN18RR v1 | 3 236 | 19 304 | 4 272 | 0.019 s → 0.020 s | 0.28 s → 0.11 s |
+| FB15k237 v1 | 3 986 | 34 724 | 5 228 | 0.031 s → 0.033 s | 0.43 s → 0.15 s |
+| NELL v1 | 1 666 | 12 616 | 1 696 | 0.011 s → 0.011 s | 0.16 s → 0.06 s |
+| FB15k237 (transductive, training graph) | 544 230 | 8 689 114 | 299 378 | 1.85 s → 0.72 s | 72.4 s → 9.6 s |
+
+On the small GraIL test graphs the relation module is a minor part of the forward pass; the saving grows with the size of the relation graph relative to the original graph (hubs, many relations per entity), as on the FB15k237 training graph where the relation graph has 16× more edges than the graph itself (29× more than the incidences), and where building and storing it is the limiting factor.
+
 ## LLM Experiment
 Please download the CoDEx dataset from [CoDEx](https://github.com/tsafavi/codex).
 
