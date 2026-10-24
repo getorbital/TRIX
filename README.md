@@ -98,6 +98,25 @@ With the released entity-prediction checkpoint (CPU, float32, 8 positives per ba
 
 End-to-end, the zero-shot evaluation scripts (`run_entity.py` / `run_relation.py` with `--epochs 0` and the released checkpoints) give identical metrics with and without the relation graph on WN18RR v1 (entity and relation prediction) and NELL v1 (relation prediction). On NELL v1 entity prediction the MRR moves from 0.809 to 0.819: this split has many candidates with exactly or nearly equal scores, and `compute_ranking` is pessimistic (a tie counts against the positive), so rounding differences of 1e-5 change 29 of the 402 rankings. The materialized implementation is just as sensitive: the same model on the same graph with its edges listed in another order gives an MRR of 0.821 (31 rankings change for a maximum score difference of 7e-6).
 
+On an A100 80 GB (torch 2.14, PyG 2.4, training graphs of the transductive datasets, batch of 32 positives × 512 negatives as in pre-training, median of 5 runs, released checkpoint):
+
+| graph (training) | triples | relation graph edges | incidences | relation module (materialized → free) | forward + backward (materialized → free) | peak memory (materialized → free) |
+|---|---:|---:|---:|---:|---:|---:|
+| CoDExSmall | 65 776 | 314 158 | 23 734 | 0.040 → 0.019 s | 0.109 → 0.061 s | 0.7 → 0.8 GiB |
+| WN18RR | 173 670 | 1 050 906 | 207 018 | 0.581 → 0.213 s | 1.525 → 0.423 s | 12.0 → 14.4 GiB |
+| ConceptNet100k | 200 000 | 1 094 878 | 216 358 | 0.387 → 0.393 s | 0.783 → 0.758 s | 22.7 → 27.5 GiB |
+| CoDExMedium | 371 168 | 2 623 864 | 202 272 | 0.455 → 0.112 s | 1.363 → 0.294 s | 5.3 → 6.1 GiB |
+| YAGO3-10 | 2 158 080 | 5 364 460 | 784 244 | 1.846 → 0.733 s | 5.435 → 2.133 s | 36.5 → 43.7 GiB |
+| Hetionet | 4 050 354 | 6 958 938 | 407 266 | 1.016 → 0.293 s | 3.184 → 1.029 s | 14.6 → 16.8 GiB |
+| CoDExLarge | 1 102 386 | 8 217 030 | 760 606 | 2.006 → 0.477 s | 5.619 → 1.130 s | 23.5 → 27.6 GiB |
+| FB15k237 | 544 230 | 8 689 114 | 299 378 | 0.378 → 0.116 s | 1.128 → 0.288 s | 5.4 → 5.4 GiB |
+| DBpedia100k | 1 195 144 | 10 616 830 | 908 478 | 1.246 → 0.599 s | 3.306 → 1.267 s | 30.3 → 35.5 GiB |
+| AristoV4 | 485 134 | 30 908 970 | 343 138 | 0.766 → 0.266 s | 2.041 → 0.548 s | 17.4 → 17.0 GiB |
+
+Training with the same 300 batches from the released checkpoint (AdamW, 5e-4): 1.13 → 0.29 s per step on FB15k237 and 2.05 → 0.53 s on AristoV4, validation MRR of the two trained models within 0.001.
+
+The gain follows the ratio of relation-graph edges to incidences, except on ConceptNet100k (78 k entities for 200 k triples): one layer costs O(|E| + |V|) here (the entity representations are a dense [num_nodes, batch × dim] tensor) against O(Σ_v k_v²) for the relation graph, so the gain is bounded by |E| / |V| and vanishes on graphs with few relations per entity. Peak memory of a training step is dominated by the entity models in both cases; the relation graph itself goes from up to 707 MiB (AristoV4) to 8 MiB of incidences, and the free version keeps a [num_nodes, batch × dim] intermediate per flavour, hence the +5 to +20% on some graphs.
+
 On the small GraIL test graphs the relation module is a minor part of the forward pass; the saving grows with the size of the relation graph relative to the original graph (hubs, many relations per entity), as on the FB15k237 training graph where the relation graph has 16× more edges than the graph itself (29× more than the incidences), and where building and storing it is the limiting factor.
 
 ## LLM Experiment
