@@ -96,6 +96,8 @@ With the released entity-prediction checkpoint (CPU, float32, 8 positives per ba
 | NELL v1 | 1 666 | 12 616 | 1 696 | 0.011 s → 0.011 s | 0.16 s → 0.06 s |
 | FB15k237 (transductive, training graph) | 544 230 | 8 689 114 | 299 378 | 1.85 s → 0.72 s | 72.4 s → 9.6 s |
 
+End-to-end, the zero-shot evaluation scripts (`run_entity.py` / `run_relation.py` with `--epochs 0` and the released checkpoints) give identical metrics with and without the relation graph on WN18RR v1 (entity and relation prediction) and NELL v1 (relation prediction). On NELL v1 entity prediction the MRR moves from 0.809 to 0.819: this split has many candidates with exactly or nearly equal scores, and `compute_ranking` is pessimistic (a tie counts against the positive), so rounding differences of 1e-5 change 29 of the 402 rankings. The materialized implementation is just as sensitive: the same model on the same graph with its edges listed in another order gives an MRR of 0.821 (31 rankings change for a maximum score difference of 7e-6).
+
 On the small GraIL test graphs the relation module is a minor part of the forward pass; the saving grows with the size of the relation graph relative to the original graph (hubs, many relations per entity), as on the FB15k237 training graph where the relation graph has 16× more edges than the graph itself (29× more than the incidences), and where building and storing it is the limiting factor.
 
 ## LLM Experiment
